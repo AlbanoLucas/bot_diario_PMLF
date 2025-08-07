@@ -2,7 +2,11 @@ import requests
 import json
 from datetime import datetime
 import os
+from dotenv import load_dotenv
 
+
+# Carrega as variáveis de ambiente do arquivo .env
+load_dotenv()
 # --- Configurações da API do Bacularis ---
 BACULARIS_API_URL = os.getenv("BACULARIS_API_URL")
 BACULARIS_USERNAME = os.getenv("BACULARIS_USERNAME")
