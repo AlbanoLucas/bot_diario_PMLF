@@ -15,17 +15,18 @@ def consultar_llm(prompt):
             model="llama3.1:8b",
             messages=[
                 {"role": "system", "content":
-                    "Você é um especialista em atos administrativos do Diário Oficial.\n"
-                    "Sua tarefa é identificar exclusivamente:\n"
-                    "- Só considerar nomeações que sigam este exemplo: Fica nomeado (nome) no cargo em comissão de ...\n"
-                    "Ignorar nomeações que sejam para compor alguma comissão ou conselho. 'Ex: Nomear como Fiscais de Contratos' ou 'Nomear os integrantes do Poder Público para compor o Conselho'\n"
-                    "Ignorar nomeação que você não tenha certeza que seja nomeação para cargo em comissão \n"
-                    "Retorne apenas nomeações que sejam para cargos em comissão, como: 'Fica nomeado(a) (nome) no cargo em comissão de (cargo)'\n"
-                    "- Exonerações (ex: exonerado, exonerada, dispensado, desligado)\n"
-                    "- Tornar sem efeito se refere ao cancelamento de uma nomeação ou exoneração, retorne tambem os nomes relacionados a este ato identificando se retroage nomeação ou exoneração (ex: 'TORNAR SEM EFEITO, a exoneração', 'TORNAR SEM EFEITO, a nomeação')\n\n"
-                    "Ignore qualquer conteúdo que não esteja claramente relacionado a esses atos.\n"
-                    "Para cada ocorrência encontrada, retorne no formato:\n"
-                    "Nome: [NOME COMPLETO] - Secretaria: [SECRETARIA] - Ato: [NOMEAÇÃO | EXONERAÇÃO | TORNAR SEM EFEITO]\n"
+                    """Você é um especialista em atos administrativos do Diário Oficial.
+                    Sua tarefa é analisar o texto abaixo e identificar exclusivamente os seguintes atos:
+                    - Nomeações para cargos em comissão.
+                    - Exonerações, desligamentos ou declarações de vacância (ex: exonerado, exonerada, fica exonerado, desligado, declara vago, vacância).
+                    - Atos de "Tornar sem efeito" que anulam nomeações ou exonerações.
+
+                    Ignore qualquer outro conteúdo, como nomeações para conselhos, comissões, grupos de trabalho ou funções gratificadas que não sejam cargos em comissão.
+                    Para cada ato que corresponda estritamente aos critérios, retorne no seguinte formato, com um ato por linha:
+                    Nome: [NOME COMPLETO] - Secretaria: [SECRETARIA] - Ato: [NOMEAÇÃO | EXONERAÇÃO | TORNAR SEM EFEITO]
+                    
+                    Se a secretaria não for explicitamente mencionada, use "não informada".
+                    Se nenhum ato correspondente for encontrado no texto, não retorne NADA."""
                 },
                 {"role": "user", "content": f"Texto para análise:\n{prompt}"}
             ],
@@ -54,32 +55,19 @@ def mover_arquivos_pasta(pasta_origem, pasta_destino):
 
 def extrair_texto_pdf(caminho_pdf):
     """
-    Extrai o texto completo de um PDF, página por página, para garantir a ordem correta do conteúdo.
-    Esta é uma abordagem mais simples e robusta que a anterior.
+    Extrai o texto de um PDF, retornando uma lista onde cada item é o texto de uma página.
     """
-    texto_completo = ""
-    tabelas_para_log = [] # Apenas para fins de visualização no log
+    textos_das_paginas = []
+    try:
+        with pdfplumber.open(caminho_pdf) as pdf:
+            for page in pdf.pages:
+                texto_da_pagina = page.extract_text(x_tolerance=2)
+                if texto_da_pagina:
+                    textos_das_paginas.append(texto_da_pagina)
+    except Exception as e:
+        print(f"Erro ao ler o PDF {caminho_pdf}: {e}")
+    return textos_das_paginas
 
-    with pdfplumber.open(caminho_pdf) as pdf:
-        for i, page in enumerate(pdf.pages):
-            # Extrai o texto da página inteira. A função .extract_text() é boa em manter a ordem de leitura.
-            texto_da_pagina = page.extract_text(x_tolerance=2, keep_blank_chars=True)
-            if texto_da_pagina:
-                texto_completo += texto_da_pagina + "\n"
-
-            # Apenas para seu log, vamos também listar as tabelas que encontramos
-            tabelas_na_pagina = page.extract_tables()
-            for tabela in tabelas_na_pagina:
-                if tabela:
-                    tabela_texto = "\n".join(["\t".join(filter(None, celula)) for celula in tabela if any(celula)])
-                    tabelas_para_log.append(tabela_texto)
-
-    # Imprime o texto e as tabelas para depuração, como no seu log anterior
-    # print("Texto extraído do PDF:\n", texto_completo)                            ######################################################################################################
-    # print("\n\nTabelas extraídas (apenas para log):\n", tabelas_para_log)        ######################################################################################################
-    
-    # Retorna o texto completo e a lista de tabelas (que não será usada diretamente, mas é bom ter)
-    return texto_completo, tabelas_para_log
 
 
 def dividir_por_artigos_relevantes(texto, tabelas):
@@ -94,7 +82,7 @@ def dividir_por_artigos_relevantes(texto, tabelas):
     indices = [m.start() for m in re.finditer(padrao_artigo, texto, re.IGNORECASE)]
     
     # Se nenhum artigo for encontrado, mas houver palavras-chave, processa o texto inteiro
-    if not indices and re.search(r"\b(exoner|nomea|TORNA SEM EFEITO)", texto, re.IGNORECASE):
+    if not indices and re.search(r"\b(exoner|nomead|TORNA SEM EFEITO)", texto, re.IGNORECASE):
         return [texto]
 
     # Cria os trechos de cada artigo
@@ -104,32 +92,51 @@ def dividir_por_artigos_relevantes(texto, tabelas):
 
     for trecho in trechos:
         # Filtra apenas os trechos que contêm os atos de interesse
-        if re.search(r"\b(exoner|nomea|TORNA SEM EFEITO)[a-z]*[ãa]?[oõ]?\b", trecho, re.IGNORECASE):
+        if re.search(r"\b(exoner|nomead|TORNA SEM EFEITO)[a-z]*[ãa]?[oõ]?\b", trecho, re.IGNORECASE):
             artigos_filtrados.append(trecho.strip())
-
-    # print(f"Artigos filtrados: {artigos_filtrados}")                      #####################################################################################################
 
     return artigos_filtrados
 
 
 def processar_diarios_com_llm(pasta_pdfs=PASTA_PDFS):
-    resultados = []
+    """
+    Processa todos os PDFs em uma pasta, analisando-os página por página para
+    encontrar atos de nomeação e exoneração usando um LLM.
+    """
+    resultados_finais = []
     for arquivo in os.listdir(pasta_pdfs):
-        if arquivo.lower().endswith(".pdf"):
-            caminho = os.path.join(pasta_pdfs, arquivo)
-            print(f"Processando: {arquivo}")
-            texto, tabelas = extrair_texto_pdf(caminho)
-            artigos_relevantes = dividir_por_artigos_relevantes(texto, tabelas)
-            respostas_arquivo = []
+        if not arquivo.lower().endswith(".pdf"):
+            continue
 
-            for i, artigo in enumerate(artigos_relevantes):
-                resposta = consultar_llm(artigo)
-                respostas_arquivo.append(f"Trecho {i+1}:\n{resposta}")
+        caminho_completo = os.path.join(pasta_pdfs, arquivo)
+        print(f"Processando: {arquivo}")
+        
+        textos_por_pagina = extrair_texto_pdf(caminho_completo)
+        respostas_do_arquivo = []
 
-            resposta_final = "\n".join(respostas_arquivo) if respostas_arquivo else "Nenhum ato relevante encontrado."
-            print(f"Resultado: {resposta_final}")
-            resultados.append(f"{arquivo}\n{resposta_final}")
-    return resultados
+        for i, texto_pagina in enumerate(textos_por_pagina):
+            # Verifica a presença de palavras-chave para evitar chamadas desnecessárias ao LLM
+            if re.search(r"\b(exoner|nomead|torna sem efeito)", texto_pagina, re.IGNORECASE):
+                print(f"  -> Página {i+1} parece relevante. Enviando para análise...")
+                resposta_llm = consultar_llm(texto_pagina)
+                
+                # Processa a resposta do LLM, que pode ter múltiplas linhas
+                if resposta_llm and "Erro ao consultar" not in resposta_llm:
+                    linhas_limpas = [linha.strip() for linha in resposta_llm.split('\n') if linha.strip()]
+                    if linhas_limpas:
+                        respostas_do_arquivo.extend(linhas_limpas)
+
+        # Formata o resultado final para o arquivo processado
+        if respostas_do_arquivo:
+            resultado_formatado = f"{arquivo}\n" + "\n".join(respostas_do_arquivo)
+            print(f"Resultado para {arquivo}:\n" + "\n".join(respostas_do_arquivo))
+        else:
+            resultado_formatado = f"{arquivo}\nNenhum ato relevante encontrado."
+            print(f"Resultado para {arquivo}: Nenhum ato relevante encontrado.")
+        
+        resultados_finais.append(resultado_formatado)
+        
+    return resultados_finais
 
 
 def download_pdf_requests(edicoes, pasta_destino, max_tentativas=3, intervalo=5):
@@ -236,12 +243,12 @@ def enviar_email(conteudo):
     except Exception as e:
         print(f"Erro ao enviar e-mail: {e}")
 
-@app.task
-def run_full_process():
-    with sync_playwright() as playwright:
-        edicoes = run(playwright)
-        print(f"Edições encontradas: {edicoes}")
-        download_pdf_requests(edicoes, PASTA_PDFS)
-        resultados = processar_diarios_com_llm()
-        enviar_email(resultados)
-        mover_arquivos_pasta(PASTA_PDFS, PASTA_DESTINO)
+# @app.task
+# def run_full_process():
+with sync_playwright() as playwright:
+    # edicoes = run(playwright)
+    # print(f"Edições encontradas: {edicoes}")
+    # download_pdf_requests(edicoes, PASTA_PDFS)
+    resultados = processar_diarios_com_llm()
+    enviar_email(resultados)
+    mover_arquivos_pasta(PASTA_PDFS, PASTA_DESTINO)
