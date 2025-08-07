@@ -185,12 +185,14 @@ def run(playwright):
     context = browser.new_context()
     page = context.new_page()
     url = "https://laurodefreitas.ba.gov.br"
+    close_poupup = "#aviso > div > div > div.modal-header > button"
     button_selector = 'body > header > div > div > div.header-top.black-bg.d-none.d-md-block > div > div > div > div.btn-group > a:nth-child(2) > button'
     table_selector = "#edicoesAnteriores > div.table-responsive > table > tbody"
     edition_column_selector = "#edicoesAnteriores > div.table-responsive > table > tbody > tr > td:nth-child(2)"
     edicoes = []
     page.on("popup", lambda popup: edicoes.extend(handle_popup(popup, table_selector, edition_column_selector)))
     page.goto(url, wait_until="domcontentloaded", timeout=60000)
+    page.click(close_poupup)
     page.click(button_selector)
     page.wait_for_timeout(30000)
     browser.close()
@@ -246,9 +248,9 @@ def enviar_email(conteudo):
 # @app.task
 # def run_full_process():
 with sync_playwright() as playwright:
-    # edicoes = run(playwright)
-    # print(f"Edições encontradas: {edicoes}")
-    # download_pdf_requests(edicoes, PASTA_PDFS)
-    resultados = processar_diarios_com_llm()
-    enviar_email(resultados)
-    mover_arquivos_pasta(PASTA_PDFS, PASTA_DESTINO)
+    edicoes = run(playwright)
+    print(f"Edições encontradas: {edicoes}")
+    download_pdf_requests(edicoes, PASTA_PDFS)
+    # resultados = processar_diarios_com_llm()
+    # enviar_email(resultados)
+    # mover_arquivos_pasta(PASTA_PDFS, PASTA_DESTINO)
