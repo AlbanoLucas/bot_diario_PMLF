@@ -245,12 +245,141 @@ def enviar_email(conteudo):
     except Exception as e:
         print(f"Erro ao enviar e-mail: {e}")
 
+def salvar_exoneracoes_em_excel(resultados, nome_arquivo_excel="exoneracoes.xlsx"):
+    """
+    Processa os resultados, extrai dados de exoneração, salva os nomes em MAIÚSCULAS
+    e os adiciona a um arquivo Excel existente. Se o arquivo não existir, ele é criado.
+    """
+    padrao = re.compile(r"Nome:\s*(.*?)\s*-\s*Secretaria:\s*(.*?)\s*-\s*Ato:\s*EXONERAÇÃO", re.IGNORECASE)
+    novos_dados = []
+
+    print("Iniciando a extração de novas exonerações...")
+
+    for bloco_texto in resultados:
+        linhas = bloco_texto.strip().split('\n')
+        if not linhas: continue
+        
+        nome_arquivo = linhas[0].strip()
+        if not nome_arquivo.lower().endswith(".pdf"): continue
+
+        try:
+            data_str = nome_arquivo[:10]
+            data_formatada = datetime.strptime(data_str, '%Y_%m_%d').strftime('%d/%m/%Y')
+            edicao = nome_arquivo[10:14]
+        except (ValueError, IndexError):
+            print(f"  -> Aviso: Não foi possível extrair data/edição do arquivo '{nome_arquivo}'.")
+            continue
+
+        for linha in linhas[1:]:
+            match = padrao.search(linha.strip())
+            if match:
+                nome = match.group(1).strip()
+                secretaria = match.group(2).strip()
+                
+                # Adiciona o dicionário com o nome em maiúsculas
+                novos_dados.append({
+                    "data": data_formatada,
+                    "edicao": edicao,
+                    "Nome": nome.upper(),  # <-- MUDANÇA AQUI
+                    "Secretaria": secretaria
+                })
+
+    if not novos_dados:
+        print("Nenhuma nova exoneração encontrada para adicionar.")
+        return
+
+    df_novos = pd.DataFrame(novos_dados)
+    ordem_colunas = ["data", "edicao", "Nome", "Secretaria"]
+    df_novos = df_novos[ordem_colunas]
+    
+    try:
+        df_antigo = pd.read_excel(nome_arquivo_excel)
+        print(f"Arquivo '{nome_arquivo_excel}' encontrado. Adicionando {len(df_novos)} novos registros.")
+        df_final = pd.concat([df_antigo, df_novos], ignore_index=True)
+    except FileNotFoundError:
+        print(f"Arquivo '{nome_arquivo_excel}' não encontrado. Criando um novo com {len(df_novos)} registros.")
+        df_final = df_novos
+    except Exception as e:
+        print(f"Ocorreu um erro ao ler o arquivo existente: {e}")
+        return
+
+    try:
+        # Garante que não haja duplicatas baseadas no nome e data
+        df_final.drop_duplicates(subset=['Nome', 'data'], keep='last', inplace=True)
+        df_final.to_excel(nome_arquivo_excel, index=False)
+        print(f"Dados salvos com sucesso em '{os.path.abspath(nome_arquivo_excel)}'. Total de {len(df_final)} registros.")
+    except Exception as e:
+        print(f"Ocorreu um erro ao salvar o arquivo Excel: {e}")
+
+def processar_tornar_sem_efeito(resultados, nome_arquivo_excel="historico_exoneracoes.xlsx"):
+    """
+    Verifica atos "TORNAR SEM EFEITO", convertendo os nomes para MAIÚSCULAS para
+    procurar e remover as linhas correspondentes no arquivo Excel.
+    """
+    print("\n--- Iniciando verificação de atos 'TORNAR SEM EFEITO' ---")
+    
+    padrao_remocao = re.compile(r"Nome:\s*(.*?)\s*-\s*Secretaria:.*-\s*Ato:\s*TORNAR SEM EFEITO", re.IGNORECASE)
+    nomes_para_remover = []
+    
+    for bloco_texto in resultados:
+        for linha in bloco_texto.strip().split('\n'):
+            match = padrao_remocao.search(linha)
+            if match:
+                nome = match.group(1).strip().upper()  # <-- MUDANÇA AQUI
+                nomes_para_remover.append(nome)
+                print(f"Encontrado ato 'TORNAR SEM EFEITO' para: {nome}")
+
+    if not nomes_para_remover:
+        print("Nenhum ato 'TORNAR SEM EFEITO' encontrado nos resultados de hoje. Nenhuma remoção necessária.")
+        return
+
+    try:
+        df = pd.read_excel(nome_arquivo_excel)
+        if 'Nome' not in df.columns:
+            print(f"Erro: A coluna 'Nome' não foi encontrada no arquivo '{nome_arquivo_excel}'.")
+            return
+    except FileNotFoundError:
+        print(f"Aviso: O arquivo '{nome_arquivo_excel}' não foi encontrado. Não há nada para remover.")
+        return
+    except Exception as e:
+        print(f"Ocorreu um erro ao ler o arquivo Excel: {e}")
+        return
+
+    nomes_na_planilha = df['Nome'].tolist()
+    linhas_antes = len(df)
+
+    # A comparação agora é entre a lista de nomes em maiúsculas e a coluna 'Nome' que já está em maiúsculas
+    df_filtrado = df[~df['Nome'].isin(nomes_para_remover)]
+    
+    linhas_depois = len(df_filtrado)
+
+    if linhas_antes > linhas_depois:
+        nomes_removidos_confirmados = [nome for nome in nomes_para_remover if nome in nomes_na_planilha]
+        
+        print("\n--- Relatório de Remoções ---")
+        for nome in nomes_removidos_confirmados:
+            print(f"REMOVIDO: O registro de '{nome}' foi removido da planilha.")
+        
+        try:
+            df_filtrado.to_excel(nome_arquivo_excel, index=False)
+            print(f"\nPlanilha '{nome_arquivo_excel}' atualizada com sucesso. {linhas_antes - linhas_depois} registro(s) removido(s).")
+        except Exception as e:
+            print(f"Ocorreu um erro ao salvar a planilha atualizada: {e}")
+    else:
+        print("\nApesar dos atos 'TORNAR SEM EFEITO' encontrados, nenhum nome correspondia a um registro na planilha atual.")
+
+    print("--- Verificação de remoções concluída ---")
+
+
 # @app.task
 # def run_full_process():
 with sync_playwright() as playwright:
     edicoes = run(playwright)
     print(f"Edições encontradas: {edicoes}")
     download_pdf_requests(edicoes, PASTA_PDFS)
-    # resultados = processar_diarios_com_llm()
-    # enviar_email(resultados)
-    # mover_arquivos_pasta(PASTA_PDFS, PASTA_DESTINO)
+    resultados = processar_diarios_com_llm()
+    if resultados:
+        salvar_exoneracoes_em_excel(resultados, "relatorio_exoneracoes.xlsx")
+        processar_tornar_sem_efeito(resultados, "relatorio_exoneracoes.xlsx")
+    enviar_email(resultados)
+    mover_arquivos_pasta(PASTA_PDFS, PASTA_DESTINO)
