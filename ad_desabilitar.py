@@ -54,5 +54,6 @@ def desabilitar_usuarios_ldap(nomes):
     conn.unbind()
 
 # Exemplo de uso
-nomes = ["Andrea Souza Santos", "Elinaldo Machado Ramos", "Elinaldo Machado Ramos", "Carlas Mari Brito de Jesus", "Camila Lima da Cruz", "Luana Guimarães Sobral", "Luzia Maria Pires Montenegro"]
+nomes = [
+]
 desabilitar_usuarios_ldap(nomes)
