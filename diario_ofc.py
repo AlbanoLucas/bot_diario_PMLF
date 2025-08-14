@@ -276,11 +276,10 @@ def salvar_exoneracoes_em_excel(resultados, nome_arquivo_excel="exoneracoes.xlsx
                 nome = match.group(1).strip()
                 secretaria = match.group(2).strip()
                 
-                # Adiciona o dicionário com o nome em maiúsculas
                 novos_dados.append({
                     "data": data_formatada,
                     "edicao": edicao,
-                    "Nome": nome.upper(),  # <-- MUDANÇA AQUI
+                    "Nome": nome.upper(),  
                     "Secretaria": secretaria
                 })
 
@@ -325,7 +324,7 @@ def processar_tornar_sem_efeito(resultados, nome_arquivo_excel="historico_exoner
         for linha in bloco_texto.strip().split('\n'):
             match = padrao_remocao.search(linha)
             if match:
-                nome = match.group(1).strip().upper()  # <-- MUDANÇA AQUI
+                nome = match.group(1).strip().upper()
                 nomes_para_remover.append(nome)
                 print(f"Encontrado ato 'TORNAR SEM EFEITO' para: {nome}")
 
@@ -371,15 +370,15 @@ def processar_tornar_sem_efeito(resultados, nome_arquivo_excel="historico_exoner
     print("--- Verificação de remoções concluída ---")
 
 
-@app.task
-def run_full_process():
-    with sync_playwright() as playwright:
-        edicoes = run(playwright)
-        print(f"Edições encontradas: {edicoes}")
-        download_pdf_requests(edicoes, PASTA_PDFS)
-        resultados = processar_diarios_com_llm()
-        if resultados:
-            salvar_exoneracoes_em_excel(resultados, "relatorio_exoneracoes.xlsx")
-            processar_tornar_sem_efeito(resultados, "relatorio_exoneracoes.xlsx")
-        enviar_email(resultados)
-        mover_arquivos_pasta(PASTA_PDFS, PASTA_DESTINO)
+# @app.task
+# def run_full_process():
+with sync_playwright() as playwright:
+    # edicoes = run(playwright)
+    # print(f"Edições encontradas: {edicoes}")
+    # download_pdf_requests(edicoes, PASTA_PDFS)
+    resultados = processar_diarios_com_llm()
+    if resultados:
+        salvar_exoneracoes_em_excel(resultados, "relatorio_exoneracoes.xlsx")
+        processar_tornar_sem_efeito(resultados, "relatorio_exoneracoes.xlsx")
+    enviar_email(resultados)
+    mover_arquivos_pasta(PASTA_PDFS, PASTA_DESTINO)
