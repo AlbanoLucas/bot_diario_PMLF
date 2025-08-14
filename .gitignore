@@ -90,3 +90,7 @@ resultados/*.txt
 
 # PDF temporários (se necessário)
 *.pdf
+
+# Ignora todos os arquivos Excel
+# *.xlsx
+relatorio_exoneracoes.xlsx
